@@ -16,7 +16,7 @@ import vibe.core.log;
 import vibe.db.mongodriver.connection;
 import vibe.db.mongodriver.settings;
 
-import core.thread;
+import std.conv;
 
 /**
 	Represents a connection to a MongoDB server.
@@ -31,6 +31,11 @@ final class MongoClient {
 	private {
 		ConnectionPool!MongoConnection m_connections;
 		MongoClientSettings m_settings;
+	}
+
+	package this(string host, ushort port)
+	{
+		this("mongodb://" ~ host ~ ":" ~ to!string(port) ~ "/?safe=true");
 	}
 
 	/**
