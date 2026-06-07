@@ -22,6 +22,7 @@ import vibe.db.mongodriver.flags;
 import vibe.db.mongodriver.impl.compression;
 import vibe.db.mongodriver.impl.wire;
 import vibe.db.mongodriver.monitor : MongoServerErrorCode;
+import vibe.db.mongodriver.impl.serverapi : applyServerApi;
 import vibe.db.mongodriver.settings;
 import vibe.db.mongodriver.topology;
 import vibe.inet.webform;
@@ -695,6 +696,10 @@ final class MongoConnection {
 		}
 
 		Bson ret;
+
+		// When the Stable API (Versioned API) is configured, every command, including
+		// the handshake hello, carries apiVersion (+ apiStrict / apiDeprecationErrors).
+		command = applyServerApi(command, m_settings.serverApi);
 
 		if (m_supportsOpMsg)
 		{
