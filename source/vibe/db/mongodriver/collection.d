@@ -13,6 +13,7 @@ public import vibe.db.mongodriver.flags;
 
 public import vibe.db.mongodriver.impl.index;
 public import vibe.db.mongodriver.impl.crud;
+public import vibe.db.mongodriver.impl.bulkwrite;
 public import vibe.db.mongodriver.impl.wireversion;
 
 import vibe.db.mongodriver.impl.changestream;
