@@ -49,8 +49,12 @@ integration:
     MONGO_TOOLS: https://fastdl.mongodb.org/tools/db/mongodb-database-tools-ubuntu2204-x86_64-100.12.0.deb
   before_script:
     - apt-get update -qq
+    # libssl-dev provides the libssl.so/libcrypto.so the linker needs for
+    # vibe-stream:tls. The libssl1.1 package installed below for the older
+    # servers is a runtime library only and does not satisfy -lssl.
     - apt-get install -y -qq --no-install-recommends
         ca-certificates curl wget git xz-utils build-essential
+        libssl-dev pkg-config
     - mkdir -p /tmp/debs
     # Servers up to 5.0 ship the legacy `mongo` shell and link against OpenSSL
     # 1.1, which jammy dropped. 6.0 and later use mongosh.
