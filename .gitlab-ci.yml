@@ -1,3 +1,10 @@
+# Pushing a branch and a tag together would otherwise run the same commit twice.
+workflow:
+  rules:
+    - if: $CI_COMMIT_TAG
+      when: never
+    - if: $CI_COMMIT_BRANCH
+
 stages:
   - test
   - integration
@@ -25,6 +32,9 @@ integration:
     - saas-linux-medium-amd64
   image: ubuntu:22.04
   timeout: 60m
+  # The server matrix does not depend on the unit tests, and runs on different
+  # infrastructure. Do not let a queue on the self-hosted runner block it.
+  needs: []
   parallel:
     matrix:
       - MONGO: ["3.6", "4.0", "4.2", "4.4", "5.0", "6.0", "7.0", "8.0"]
