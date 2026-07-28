@@ -14,25 +14,29 @@ variables:
   DC: dmd
 
 # Unit tests run on the self-hosted runner, which already carries a D toolchain
-# and needs no MongoDB server.
+# and needs no MongoDB server. --cache=local keeps build artefacts in the
+# project directory: the shared ~/.dub cache on that box is written by several
+# projects and has served up half-built dependencies.
 unittests:
   stage: test
   tags:
     - ogm
+  variables:
+    DUB_ARGS: --cache=local
   script:
     - PARTS=unittests ./run-ci.sh
 
 # The server version matrix runs on GitLab's shared runners so the self-hosted
 # box does not have to host eight MongoDB installations. An explicit tag is
-# required here: the ogm runner accepts untagged jobs and would otherwise pick
-# these up.
+# required: the ogm runner accepts untagged jobs and would otherwise pick these
+# up itself.
 integration:
   stage: integration
   tags:
     - saas-linux-medium-amd64
   image: ubuntu:22.04
   timeout: 60m
-  # The server matrix does not depend on the unit tests, and runs on different
+  # The matrix does not depend on the unit tests and runs on different
   # infrastructure. Do not let a queue on the self-hosted runner block it.
   needs: []
   parallel:
@@ -46,36 +50,37 @@ integration:
   before_script:
     - apt-get update -qq
     - apt-get install -y -qq --no-install-recommends
-        ca-certificates curl wget git xz-utils gnupg build-essential libcurl4
-    # Servers older than 6.0 were built against OpenSSL 1.1, which jammy dropped.
-    # Refresh this URL if the Ubuntu security pool rotates the point release.
+        ca-certificates curl wget git xz-utils build-essential
+    - mkdir -p /tmp/debs
+    # Servers up to 5.0 ship the legacy `mongo` shell and link against OpenSSL
+    # 1.1, which jammy dropped. 6.0 and later use mongosh.
     - |
       case "$MONGO" in
-        3.6|4.0|4.2|4.4|5.0)
-          wget -q http://security.ubuntu.com/ubuntu/pool/main/o/openssl/libssl1.1_1.1.1f-1ubuntu2.24_amd64.deb
-          dpkg -i libssl1.1_*.deb
-          ;;
+        3.6) DIST=bionic; VER=3.6.23; LEGACY=1 ;;
+        4.0) DIST=bionic; VER=4.0.28; LEGACY=1 ;;
+        4.2) DIST=bionic; VER=4.2.25; LEGACY=1 ;;
+        4.4) DIST=focal;  VER=4.4.29; LEGACY=1 ;;
+        5.0) DIST=focal;  VER=5.0.31; LEGACY=1 ;;
+        6.0) DIST=jammy;  VER=6.0.23; LEGACY=0 ;;
+        7.0) DIST=jammy;  VER=7.0.20; LEGACY=0 ;;
+        8.0) DIST=jammy;  VER=8.0.9;  LEGACY=0 ;;
       esac
-    # Server and shell builds, mapped per version. Up to 5.0 ships the legacy
-    # `mongo` shell; 6.0 and later use mongosh.
-    - |
-      case "$MONGO" in
-        3.6) DIST=bionic; VER=3.6.23; SHELL_URL="$MONGO_REPO/bionic/mongodb-org/3.6/multiverse/binary-amd64/mongodb-org-shell_${VER}_amd64.deb" ;;
-        4.0) DIST=bionic; VER=4.0.28; SHELL_URL="$MONGO_REPO/bionic/mongodb-org/4.0/multiverse/binary-amd64/mongodb-org-shell_${VER}_amd64.deb" ;;
-        4.2) DIST=bionic; VER=4.2.25; SHELL_URL="$MONGO_REPO/bionic/mongodb-org/4.2/multiverse/binary-amd64/mongodb-org-shell_${VER}_amd64.deb" ;;
-        4.4) DIST=focal;  VER=4.4.29; SHELL_URL="$MONGO_REPO/focal/mongodb-org/4.4/multiverse/binary-amd64/mongodb-org-shell_${VER}_amd64.deb" ;;
-        5.0) DIST=focal;  VER=5.0.31; SHELL_URL="$MONGO_REPO/focal/mongodb-org/5.0/multiverse/binary-amd64/mongodb-org-shell_${VER}_amd64.deb" ;;
-        6.0) DIST=jammy;  VER=6.0.23; SHELL_URL="$MONGOSH" ;;
-        7.0) DIST=jammy;  VER=7.0.20; SHELL_URL="$MONGOSH" ;;
-        8.0) DIST=jammy;  VER=8.0.9;  SHELL_URL="$MONGOSH" ;;
-      esac
-      wget -q "$MONGO_REPO/$DIST/mongodb-org/$MONGO/multiverse/binary-amd64/mongodb-org-server_${VER}_amd64.deb"
-      wget -q "$SHELL_URL"
-      wget -q "$MONGO_TOOLS"
-      dpkg -i mongodb-org-server_*.deb mongodb-*shell*.deb mongodb-database-tools-*.deb
+      BASE="$MONGO_REPO/$DIST/mongodb-org/$MONGO/multiverse/binary-amd64"
+      wget -qO /tmp/debs/server.deb "$BASE/mongodb-org-server_${VER}_amd64.deb"
+      wget -qO /tmp/debs/tools.deb "$MONGO_TOOLS"
+      if [ "$LEGACY" = 1 ]; then
+        wget -qO /tmp/debs/shell.deb "$BASE/mongodb-org-shell_${VER}_amd64.deb"
+        # Refresh this URL if the Ubuntu security pool rotates the point release.
+        wget -qO /tmp/debs/libssl1.1.deb \
+          http://security.ubuntu.com/ubuntu/pool/main/o/openssl/libssl1.1_1.1.1f-1ubuntu2.24_amd64.deb
+      else
+        wget -qO /tmp/debs/shell.deb "$MONGOSH"
+      fi
+      # apt resolves dependencies for local debs, dpkg -i does not.
+      apt-get install -y -qq /tmp/debs/*.deb
       mongod --version
-    - curl -fsS https://dlang.org/install.sh -o install.sh
-    - bash install.sh -p /opt/dlang install dmd
-    - source $(bash install.sh -p /opt/dlang -a dmd)
+    - curl -fsS https://dlang.org/install.sh -o /tmp/install.sh
+    - bash /tmp/install.sh -p /opt/dlang install dmd
+    - source $(bash /tmp/install.sh -p /opt/dlang -a dmd)
   script:
     - PARTS=mongo ./run-ci.sh
