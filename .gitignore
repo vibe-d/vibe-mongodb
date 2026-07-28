@@ -1,0 +1,13 @@
+*.o
+*.a
+*.lib
+*.so
+*.dll
+*.exe
+*.lst
+.dub/
+.*.sw*
+docs.json
+__dummy.html
+__test__*__
+vibe-mongodriver-test-library

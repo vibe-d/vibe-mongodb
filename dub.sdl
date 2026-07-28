@@ -1,6 +1,0 @@
-name "mongodb"
-description "MongoDB database client implementation"
-dependency "vibe-http" version="~>1.0"
-targetType "library"
-sourcePaths "."
-importPaths "."

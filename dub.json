@@ -1,0 +1,21 @@
+{
+	"name": "vibe-mongodriver",
+	"description": "MongoDB database client implementation for D, supporting MongoDB up to 8.0",
+	"homepage": "https://gitlab.com/GISCollective/vibe-mongodriver",
+	"license": "MIT",
+	"copyright": "Copyright © 2012-2022 Sönke Ludwig, Jan Jurzitza, Nicolas Gurrola; Copyright © 2026 Szabo Bogdan",
+	"authors": [
+		"Sönke Ludwig",
+		"Jan Jurzitza",
+		"Nicolas Gurrola",
+		"Szabo Bogdan"
+	],
+
+	"targetType": "library",
+	"sourcePaths": [ "source" ],
+	"importPaths": [ "source" ],
+
+	"dependencies": {
+		"vibe-http": "~>1.0"
+	}
+}

@@ -587,7 +587,7 @@ final class MongoConnection {
 		// TODO: add support for os.version
 
 		handshake["client"] = Bson([
-			"driver": Bson(["name": Bson("vibe.db.mongodriver"), "version": Bson(vibeVersionString)]),
+			"driver": Bson(["name": Bson("vibe-mongodriver"), "version": Bson(vibeVersionString)]),
 			"os": Bson(["type": Bson(os.os.to!string), "architecture": Bson(hostArchitecture)]),
 			"platform": Bson(platform)
 		]);
