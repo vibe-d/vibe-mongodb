@@ -263,6 +263,137 @@ unittest
 		"a file missing its trailing chunk is rejected, not silently truncated");
 }
 
+/// The inclusive chunk index interval [first, last] that covers a byte range.
+struct GridFSChunkSpan
+{
+	int first;
+	int last;
+}
+
+/// computes which chunk indexes cover the byte range [offset, offset + length)
+GridFSChunkSpan gridfsChunkSpan(long offset, long length, int chunkSize)
+{
+	enforce(chunkSize > 0, "GridFS chunkSize must be positive");
+	enforce(offset >= 0, "GridFS range offset must not be negative");
+	enforce(length > 0, "GridFS range length must be positive");
+
+	return GridFSChunkSpan(cast(int)(offset / chunkSize), cast(int)((offset + length - 1) / chunkSize));
+}
+
+/// a range inside the first chunk spans only chunk zero
+unittest
+{
+	assert(gridfsChunkSpan(0, 10, 100) == GridFSChunkSpan(0, 0));
+	assert(gridfsChunkSpan(90, 10, 100) == GridFSChunkSpan(0, 0));
+}
+
+/// a range crossing a chunk boundary spans both chunks
+unittest
+{
+	assert(gridfsChunkSpan(90, 11, 100) == GridFSChunkSpan(0, 1));
+	assert(gridfsChunkSpan(250, 100, 100) == GridFSChunkSpan(2, 3));
+}
+
+/// a range starting exactly on a chunk boundary starts at that chunk
+unittest
+{
+	assert(gridfsChunkSpan(200, 1, 100) == GridFSChunkSpan(2, 2));
+}
+
+/// a zero-length or negative range is rejected
+unittest
+{
+	import std.exception : assertThrown;
+
+	assertThrown!Exception(gridfsChunkSpan(0, 0, 100));
+	assertThrown!Exception(gridfsChunkSpan(-1, 10, 100));
+	assertThrown!Exception(gridfsChunkSpan(0, 10, 0));
+}
+
+/// slices the byte range [offset, offset + length) out of the chunk documents that
+/// cover its span; `chunks` must be exactly the covering chunks, any order
+ubyte[] gridfsAssembleRange(scope Bson[] chunks, long offset, long length, int chunkSize)
+{
+	import std.algorithm : sort;
+	import std.conv : to;
+
+	auto span = gridfsChunkSpan(offset, length, chunkSize);
+
+	auto ordered = chunks.dup;
+	ordered.sort!((a, b) => a["n"].get!int < b["n"].get!int);
+
+	ubyte[] data;
+	foreach (i, chunk; ordered)
+	{
+		enforce(chunk["n"].get!int == span.first + cast(int) i,
+			"GridFS chunk " ~ (span.first + cast(int) i).to!string ~ " is missing");
+		data ~= chunk["data"].get!BsonBinData.rawData;
+	}
+
+	long start = offset - long(span.first) * chunkSize;
+	enforce(cast(long) data.length >= start + length,
+		"GridFS range read ends past the stored chunk data");
+
+	return data[cast(size_t) start .. cast(size_t)(start + length)];
+}
+
+/// a mid-file range crossing chunk boundaries returns exactly the requested bytes
+unittest
+{
+	auto filesId = BsonObjectID.generate();
+	ubyte[] data;
+	foreach (i; 0 .. 25)
+		data ~= cast(ubyte) i;
+
+	auto chunks = gridfsChunkDocuments(filesId, data, 10);
+
+	assert(gridfsAssembleRange(chunks[0 .. 2], 5, 10, 10) == data[5 .. 15]);
+	assert(gridfsAssembleRange(chunks[2 .. 3], 20, 5, 10) == data[20 .. 25]);
+	assert(gridfsAssembleRange(chunks, 0, 25, 10) == data);
+}
+
+/// chunks supplied out of order still reconstruct the requested range
+unittest
+{
+	import std.algorithm : reverse;
+
+	auto filesId = BsonObjectID.generate();
+	ubyte[] data = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+
+	auto chunks = gridfsChunkDocuments(filesId, data, 3);
+	chunks.reverse;
+
+	assert(gridfsAssembleRange(chunks, 2, 6, 3) == data[2 .. 8]);
+}
+
+/// a missing chunk inside the span is rejected
+unittest
+{
+	import std.exception : assertThrown;
+	import std.algorithm.mutation : remove;
+
+	auto filesId = BsonObjectID.generate();
+	ubyte[] data = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+
+	auto chunks = gridfsChunkDocuments(filesId, data, 3);
+	chunks = chunks.remove(1);
+
+	assertThrown(gridfsAssembleRange(chunks, 0, 10, 3));
+}
+
+/// a range reaching past the stored bytes is rejected instead of silently truncated
+unittest
+{
+	import std.exception : assertThrown;
+
+	auto filesId = BsonObjectID.generate();
+	ubyte[] data = [0, 1, 2, 3, 4];
+
+	auto chunks = gridfsChunkDocuments(filesId, data, 3);
+
+	assertThrown(gridfsAssembleRange(chunks, 3, 5, 3));
+}
+
 import vibe.db.mongodriver.database : MongoDatabase;
 import vibe.db.mongodriver.collection : MongoCollection;
 import vibe.db.mongodriver.impl.index : IndexModel;
@@ -360,5 +491,150 @@ struct GridFSBucket
 		enforce(!fileDoc.isNull, "GridFS file " ~ id.toString ~ " not found");
 		auto chunks = m_chunks.find(["files_id": Bson(id)]).array;
 		return gridfsAssembleChunks(chunks, fileDoc["length"].get!long);
+	}
+
+	/// Reads the byte range [offset, offset + length) of the file described by `fileDoc`,
+	/// fetching only the covering chunks. Callers that read repeatedly should hold on to
+	/// the files document to avoid one metadata round trip per read.
+	ubyte[] readRange(Bson fileDoc, long offset, long length)
+	{
+		long fileLength = fileDoc["length"].get!long;
+		int chunkSize = fileDoc["chunkSize"].get!int;
+		enforce(offset >= 0 && length >= 0 && offset + length <= fileLength,
+			"GridFS range is outside the stored file");
+
+		if (length == 0)
+			return null;
+
+		auto span = gridfsChunkSpan(offset, length, chunkSize);
+		auto query = Bson([
+			"files_id": fileDoc["_id"],
+			"n": Bson(["$gte": Bson(span.first), "$lte": Bson(span.last)])
+		]);
+		auto chunks = m_chunks.find(query).sort(["n": 1]).array;
+		return gridfsAssembleRange(chunks, offset, length, chunkSize);
+	}
+
+	/// Reads a byte range by file id, fetching the files document first.
+	ubyte[] readRange(BsonObjectID id, long offset, long length)
+	{
+		auto fileDoc = m_files.findOne(["_id": Bson(id)]);
+		enforce(!fileDoc.isNull, "GridFS file " ~ id.toString ~ " not found");
+		return readRange(fileDoc, offset, length);
+	}
+
+	/// Finds the newest files document with the given filename; a null Bson when absent.
+	Bson findFileByName(string filename)
+	{
+		foreach (doc; m_files.find(["filename": Bson(filename)]).sort(["uploadDate": -1]).limit(1))
+			return doc;
+		return Bson(null);
+	}
+
+	/// Deletes the files document first (making the file invisible), then its chunks,
+	/// so a failure between the two cannot leave a visible file with missing data.
+	void deleteFile(BsonObjectID id)
+	{
+		m_files.deleteOne(["_id": Bson(id)]);
+		m_chunks.deleteMany(["files_id": Bson(id)]);
+	}
+
+	/// Opens a streaming upload for callers that cannot hold the whole file in memory.
+	/// Feed bytes with put(), then call finish() for the file id — or abort() to discard.
+	GridFSUploadStream openUploadStream(string filename)
+	{
+		ensureIndexes();
+		return GridFSUploadStream(m_files, m_chunks, m_options, filename);
+	}
+}
+
+/// Output-range style streaming upload: put() buffers bytes into chunk documents and
+/// batches the inserts; finish() writes the files document that makes the file visible.
+struct GridFSUploadStream
+{
+	private MongoCollection m_files;
+	private MongoCollection m_chunks;
+	private GridFSBucketOptions m_options;
+	private string m_filename;
+	private BsonObjectID m_filesId;
+	private ubyte[] m_buffer;
+	private Bson[] m_pending;
+	private int m_nextChunk;
+	private long m_totalLength;
+	private bool m_closed;
+
+	/// chunk documents buffered per insertMany; ~12.5 MiB of data at the default chunk size
+	enum int insertBatchSize = 50;
+
+	this(MongoCollection files, MongoCollection chunks, GridFSBucketOptions options, string filename)
+	{
+		m_files = files;
+		m_chunks = chunks;
+		m_options = options;
+		m_filename = filename;
+		m_filesId = BsonObjectID.generate();
+	}
+
+	/// the id the files document will be stored under once finish() runs
+	BsonObjectID filesId() const
+	{
+		return m_filesId;
+	}
+
+	/// buffers bytes, inserting chunk documents as they fill
+	void put(scope const(ubyte)[] data)
+	{
+		enforce(!m_closed, "GridFS upload stream is already closed");
+
+		m_buffer ~= data;
+		m_totalLength += data.length;
+
+		while (m_buffer.length >= m_options.chunkSizeBytes)
+		{
+			enqueueChunk(m_buffer[0 .. m_options.chunkSizeBytes]);
+			m_buffer = m_buffer[m_options.chunkSizeBytes .. $];
+		}
+	}
+
+	private void enqueueChunk(scope const(ubyte)[] slice)
+	{
+		m_pending ~= gridfsChunkDocument(m_filesId, m_nextChunk, slice);
+		m_nextChunk++;
+
+		if (m_pending.length >= insertBatchSize)
+			flushPending();
+	}
+
+	private void flushPending()
+	{
+		if (!m_pending.length)
+			return;
+
+		m_chunks.insertMany(m_pending);
+		m_pending = null;
+	}
+
+	/// flushes the trailing partial chunk and writes the files document; returns the file id
+	BsonObjectID finish()
+	{
+		enforce(!m_closed, "GridFS upload stream is already closed");
+
+		if (m_buffer.length)
+			enqueueChunk(m_buffer);
+		m_buffer = null;
+		flushPending();
+
+		m_files.insertOne(gridfsFilesDocument(m_filesId, m_filename, m_totalLength, m_options.chunkSizeBytes));
+		m_closed = true;
+		return m_filesId;
+	}
+
+	/// discards the upload, deleting any chunks already inserted
+	void abort()
+	{
+		m_chunks.deleteMany(["files_id": Bson(m_filesId)]);
+		m_buffer = null;
+		m_pending = null;
+		m_closed = true;
 	}
 }
