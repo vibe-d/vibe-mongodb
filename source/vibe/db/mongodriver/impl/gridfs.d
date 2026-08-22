@@ -142,6 +142,31 @@ Bson gridfsFilesDocument(BsonObjectID filesId, string filename, long length, int
 	return doc;
 }
 
+/// flags a files document whose chunks are still being written
+enum gridfsIncompleteField = "incomplete";
+
+/// the files document of an unfinished upload, written before any chunk so a killed
+/// process leaves a resumable record instead of orphaned chunks
+Bson gridfsPendingFilesDocument(BsonObjectID filesId, string filename, int chunkSize)
+{
+	Bson doc = gridfsFilesDocument(filesId, filename, 0, chunkSize);
+	doc[gridfsIncompleteField] = Bson(true);
+	return doc;
+}
+
+/// a pending files document is flagged and starts empty
+unittest
+{
+	auto filesId = BsonObjectID.generate();
+	auto doc = gridfsPendingFilesDocument(filesId, "planet.pmtiles", 65536);
+
+	assert(doc["_id"].get!BsonObjectID == filesId);
+	assert(doc["filename"].get!string == "planet.pmtiles");
+	assert(doc["length"].get!long == 0);
+	assert(doc["chunkSize"].get!int == 65536);
+	assert(doc[gridfsIncompleteField].get!bool == true);
+}
+
 /// the files document carries the file id, length, chunk size, and filename
 unittest
 {
@@ -546,6 +571,86 @@ struct GridFSBucket
 		ensureIndexes();
 		return GridFSUploadStream(m_files, m_chunks, m_options, filename);
 	}
+
+	/// like openUploadStream, but the files document is written up front and flagged, so
+	/// findPendingFile and resumeUploadStream can continue it after a crash
+	GridFSUploadStream openResumableUploadStream(string filename)
+	{
+		ensureIndexes();
+
+		auto filesId = BsonObjectID.generate();
+		m_files.insertOne(gridfsPendingFilesDocument(filesId, filename, m_options.chunkSizeBytes));
+
+		return GridFSUploadStream(m_files, m_chunks, m_options, filename, filesId, 0, 0);
+	}
+
+	/// the newest unfinished files document with this filename; a null Bson when there is none
+	Bson findPendingFile(string filename)
+	{
+		auto query = Bson([
+			"filename": Bson(filename),
+			gridfsIncompleteField: Bson(true)
+		]);
+
+		foreach (doc; m_files.find(query).sort(["uploadDate": -1]).limit(1))
+			return doc;
+		return Bson(null);
+	}
+
+	/// continues `fileDoc`, appending after the chunks already stored
+	GridFSUploadStream resumeUploadStream(Bson fileDoc)
+	{
+		enforce(fileDoc[gridfsIncompleteField].opt!bool(false),
+			"GridFS resume needs a files document flagged " ~ gridfsIncompleteField);
+
+		auto filesId = fileDoc["_id"].get!BsonObjectID;
+		auto chunkSize = fileDoc["chunkSize"].get!int;
+		auto stored = cast(int) m_chunks.countDocuments(["files_id": Bson(filesId)]);
+
+		// only finish() writes a short chunk, so one here means the last run died inside
+		// finish() and resuming after it would leave a hole
+		if (stored > 0)
+		{
+			auto last = m_chunks.findOne(["files_id": Bson(filesId), "n": Bson(stored - 1)]);
+			if (last.isNull || last["data"].get!BsonBinData.rawData.length != chunkSize)
+			{
+				m_chunks.deleteOne(["files_id": Bson(filesId), "n": Bson(stored - 1)]);
+				stored--;
+			}
+		}
+
+		return GridFSUploadStream(m_files, m_chunks, m_options, fileDoc["filename"].get!string,
+			filesId, stored, long(stored) * chunkSize);
+	}
+
+	/// the bytes of the stored chunks in [firstChunk, lastChunk], in order
+	ubyte[] readChunks(BsonObjectID filesId, int firstChunk, int lastChunk)
+	{
+		import std.conv : to;
+
+		if (lastChunk < firstChunk)
+			return null;
+
+		auto query = Bson([
+			"files_id": Bson(filesId),
+			"n": Bson(["$gte": Bson(firstChunk), "$lte": Bson(lastChunk)])
+		]);
+
+		ubyte[] data;
+		auto expected = firstChunk;
+		foreach (chunk; m_chunks.find(query).sort(["n": 1]))
+		{
+			enforce(chunk["n"].get!int == expected,
+				"GridFS chunk " ~ expected.to!string ~ " is missing");
+			data ~= chunk["data"].get!BsonBinData.rawData;
+			expected++;
+		}
+
+		enforce(expected == lastChunk + 1,
+			"GridFS chunk " ~ expected.to!string ~ " is missing");
+
+		return data;
+	}
 }
 
 /// Output-range style streaming upload: put() buffers bytes into chunk documents and
@@ -562,6 +667,7 @@ struct GridFSUploadStream
 	private int m_nextChunk;
 	private long m_totalLength;
 	private bool m_closed;
+	private bool m_resumable;
 
 	/// chunk documents buffered per insertMany; ~12.5 MiB of data at the default chunk size
 	enum int insertBatchSize = 50;
@@ -575,10 +681,30 @@ struct GridFSUploadStream
 		m_filesId = BsonObjectID.generate();
 	}
 
+	/// continues an existing files document; finish() updates it instead of inserting
+	this(MongoCollection files, MongoCollection chunks, GridFSBucketOptions options,
+		string filename, BsonObjectID filesId, int nextChunk, long stored)
+	{
+		m_files = files;
+		m_chunks = chunks;
+		m_options = options;
+		m_filename = filename;
+		m_filesId = filesId;
+		m_nextChunk = nextChunk;
+		m_totalLength = stored;
+		m_resumable = true;
+	}
+
 	/// the id the files document will be stored under once finish() runs
 	BsonObjectID filesId() const
 	{
 		return m_filesId;
+	}
+
+	/// bytes handed to put() so far, including any carried over by a resume
+	long storedBytes() const
+	{
+		return m_totalLength;
 	}
 
 	/// buffers bytes, inserting chunk documents as they fill
@@ -624,15 +750,30 @@ struct GridFSUploadStream
 		m_buffer = null;
 		flushPending();
 
-		m_files.insertOne(gridfsFilesDocument(m_filesId, m_filename, m_totalLength, m_options.chunkSizeBytes));
+		if (m_resumable)
+		{
+			// clearing the flag is what makes the file complete
+			m_files.updateOne(["_id": Bson(m_filesId)], Bson([
+				"$set": Bson(["length": Bson(m_totalLength)]),
+				"$unset": Bson([gridfsIncompleteField: Bson("")])
+			]));
+		}
+		else
+			m_files.insertOne(gridfsFilesDocument(m_filesId, m_filename, m_totalLength, m_options.chunkSizeBytes));
+
 		m_closed = true;
 		return m_filesId;
 	}
 
-	/// discards the upload, deleting any chunks already inserted
+	/// the deliberate give-up: drops the chunks and any pending files document. A process
+	/// that simply dies runs none of this, which is what leaves the upload resumable.
 	void abort()
 	{
 		m_chunks.deleteMany(["files_id": Bson(m_filesId)]);
+
+		if (m_resumable)
+			m_files.deleteOne(["_id": Bson(m_filesId)]);
+
 		m_buffer = null;
 		m_pending = null;
 		m_closed = true;
