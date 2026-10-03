@@ -555,11 +555,19 @@ final class MongoClient {
 			if (conn.alive)
 				return conn;
 
+			closeQuietly(conn.__conn);
 			pool.remove(conn.__conn);
 			logDiagnostic("Evicted dead MongoDB connection from pool");
 		}
 
 		throw new MongoDriverException("Failed to acquire a live connection after evicting 100 dead connections");
+	}
+
+	/// Closes a connection that is being thrown away; a failure to close it changes nothing.
+	private static void closeQuietly(MongoConnection connection) @safe nothrow
+	{
+		try connection.disconnect();
+		catch (Exception e) logDiagnostic("Closing a dead MongoDB connection failed: %s", e.msg);
 	}
 
 	/// Drops the connection pools for hosts no longer in `desiredHosts`, disconnecting

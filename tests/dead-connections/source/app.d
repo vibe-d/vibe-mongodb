@@ -8,6 +8,37 @@ import core.time;
 import std.conv;
 import std.exception;
 
+/// The sockets this process holds open. An evicted connection that is never
+/// closed stays in this list for the life of the process.
+size_t openFileDescriptors()
+{
+	import std.algorithm : count;
+	import std.file : dirEntries, SpanMode;
+
+	return dirEntries("/proc/self/fd", SpanMode.shallow).count;
+}
+
+/// Runs `operations` commands at once, so the pool has to hold that many connections.
+void runConcurrently(MongoCollection coll, size_t operations)
+{
+	import vibe.core.task : Task;
+
+	Task[] tasks;
+
+	foreach (i; 0 .. operations)
+	{
+		tasks ~= runTask((size_t index) nothrow {
+			try coll.insertOne(Bson(["_id": Bson(BsonObjectID.generate), "idx": Bson(cast(long) index)]));
+			catch (Exception e) logError("Concurrent insert %s failed: %s", index, e.msg);
+		}, i);
+	}
+
+	foreach (task; tasks)
+		task.join();
+}
+
+enum pooledConnections = 6;
+
 int main(string[] args)
 {
 	setLogLevel(LogLevel.diagnostic);
@@ -50,7 +81,11 @@ int main(string[] args)
 		coll.insertOne(Bson(["_id": Bson(objID), "idx": Bson(i)]));
 	}
 
-	logInfo("Phase 1 passed: 5 inserts completed");
+	runConcurrently(coll, pooledConnections);
+
+	const descriptorsBeforeRestart = openFileDescriptors();
+
+	logInfo("Phase 1 passed: 5 inserts completed, %s descriptors open", descriptorsBeforeRestart);
 
 	// Signal that we're ready for the server to be killed
 	import std.stdio : File;
@@ -87,6 +122,16 @@ int main(string[] args)
 		auto doc = coll.findOne(["_id": objID]);
 		enforce(!doc.isNull, "Inserted document not found after restart");
 		enforce(doc["value"].get!string == "after-restart", "Document content mismatch");
+
+		// Every pooled connection is dead now. Each one has to be closed when it is
+		// evicted, or its socket stays open until the process ends.
+		runConcurrently(coll, pooledConnections);
+
+		const descriptorsAfterRestart = openFileDescriptors();
+		logInfo("%s descriptors open before the restart, %s after", descriptorsBeforeRestart, descriptorsAfterRestart);
+		enforce(descriptorsAfterRestart <= descriptorsBeforeRestart,
+			"Evicted connections were not closed: " ~ descriptorsBeforeRestart.to!string
+			~ " descriptors before the restart, " ~ descriptorsAfterRestart.to!string ~ " after");
 
 		success = true;
 	}
