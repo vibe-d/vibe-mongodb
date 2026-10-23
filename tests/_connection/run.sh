@@ -33,7 +33,7 @@ fi
 # Authenticated Test (SCRAM-SHA-1, default for older servers)
 
 MONGOPID=$(mongod --logpath log.txt --bind_ip 127.0.0.1 --port $MONGOPORT --noauth --dbpath db/auth --fork | grep -Po 'forked process: \K\d+')
-echo "db.createUser({user:'admin',pwd:'123456',roles:[{role:'readWrite',db:'unittest'},'dbAdmin'],passwordDigestor:'server'})" | $MONGO "mongodb://127.0.0.1:$MONGOPORT/admin"
+$MONGO --quiet "mongodb://127.0.0.1:$MONGOPORT/admin" --eval "db.createUser({user:'admin',pwd:'123456',roles:[{role:'readWrite',db:'unittest'},'dbAdmin'],passwordDigestor:'server'})"
 kill $MONGOPID
 
 while kill -0 $MONGOPID &>/dev/null; do
@@ -75,8 +75,8 @@ MAJOR_VERSION=$(echo "$SERVER_VERSION" | cut -d. -f1)
 if [ "$MAJOR_VERSION" -ge 4 ] 2>/dev/null; then
 	echo "MongoDB $SERVER_VERSION detected, running SCRAM-SHA-256 tests"
 
-	echo "db.createUser({user:'sha256user',pwd:'testpass',roles:[{role:'readWrite',db:'unittest'},'dbAdmin'],mechanisms:['SCRAM-SHA-256']})" | $MONGO "mongodb://127.0.0.1:$MONGOPORT/admin"
-	echo "db.createUser({user:'bothuser',pwd:'testpass',roles:[{role:'readWrite',db:'unittest'},'dbAdmin'],mechanisms:['SCRAM-SHA-1','SCRAM-SHA-256']})" | $MONGO "mongodb://127.0.0.1:$MONGOPORT/admin"
+	$MONGO --quiet "mongodb://127.0.0.1:$MONGOPORT/admin" --eval "db.createUser({user:'sha256user',pwd:'testpass',roles:[{role:'readWrite',db:'unittest'},'dbAdmin'],mechanisms:['SCRAM-SHA-256']})"
+	$MONGO --quiet "mongodb://127.0.0.1:$MONGOPORT/admin" --eval "db.createUser({user:'bothuser',pwd:'testpass',roles:[{role:'readWrite',db:'unittest'},'dbAdmin'],mechanisms:['SCRAM-SHA-1','SCRAM-SHA-256']})"
 	kill $MONGOPID
 
 	while kill -0 $MONGOPID &>/dev/null; do
