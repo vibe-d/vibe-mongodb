@@ -10,34 +10,31 @@ import std.exception;
 
 /// The sockets this process holds open. An evicted connection that is never
 /// closed stays in this list for the life of the process.
-size_t openFileDescriptors()
+size_t openSockets()
 {
-	import std.algorithm : count;
-	import std.file : dirEntries, SpanMode;
+	import std.algorithm : count, startsWith;
+	import std.file : dirEntries, readLink, SpanMode;
 
-	return dirEntries("/proc/self/fd", SpanMode.shallow).count;
+	return dirEntries("/proc/self/fd", SpanMode.shallow)
+		.count!((entry) {
+			try return readLink(entry.name).startsWith("socket:");
+			catch (Exception) return false;
+		});
 }
 
-/// Runs `operations` commands at once, so the pool has to hold that many connections.
-void runConcurrently(MongoCollection coll, size_t operations)
+/// Inserts one document through each client. A client's pool holds exactly one
+/// connection after a serial insert, so `clients.length` clients hold exactly that
+/// many pooled sockets, however the scheduler interleaves them.
+void insertThroughEach(MongoClient[] clients, string value)
 {
-	import vibe.core.task : Task;
-
-	Task[] tasks;
-
-	foreach (i; 0 .. operations)
+	foreach (index, client; clients)
 	{
-		tasks ~= runTask((size_t index) nothrow {
-			try coll.insertOne(Bson(["_id": Bson(BsonObjectID.generate), "idx": Bson(cast(long) index)]));
-			catch (Exception e) logError("Concurrent insert %s failed: %s", index, e.msg);
-		}, i);
+		auto coll = client.getCollection("deadconn_test.items");
+		coll.insertOne(Bson(["_id": Bson(BsonObjectID.generate), "client": Bson(cast(long) index), "value": Bson(value)]));
 	}
-
-	foreach (task; tasks)
-		task.join();
 }
 
-enum pooledConnections = 6;
+enum clientCount = 6;
 
 int main(string[] args)
 {
@@ -59,12 +56,14 @@ int main(string[] args)
 	settings.socketTimeoutMS = 2_000;
 	settings.appName = "DeadConnTest";
 
-	logInfo("Phase 1: Create client and open multiple connections");
+	logInfo("Phase 1: Create %s clients with one pooled connection each", clientCount);
 
-	MongoClient client;
+	MongoClient[] clients;
 	try
 	{
-		client = connectMongoDB(settings);
+		foreach (_; 0 .. clientCount)
+			clients ~= connectMongoDB(settings);
+		insertThroughEach(clients, "before-restart");
 	}
 	catch (Exception e)
 	{
@@ -72,20 +71,9 @@ int main(string[] args)
 		return 1;
 	}
 
-	auto coll = client.getCollection("deadconn_test.items");
+	const socketsBeforeRestart = openSockets();
 
-	// Insert documents to ensure at least one pooled connection exists
-	foreach (i; 0 .. 5)
-	{
-		auto objID = BsonObjectID.generate;
-		coll.insertOne(Bson(["_id": Bson(objID), "idx": Bson(i)]));
-	}
-
-	runConcurrently(coll, pooledConnections);
-
-	const descriptorsBeforeRestart = openFileDescriptors();
-
-	logInfo("Phase 1 passed: 5 inserts completed, %s descriptors open", descriptorsBeforeRestart);
+	logInfo("Phase 1 passed: %s clients inserted, %s sockets open", clientCount, socketsBeforeRestart);
 
 	// Signal that we're ready for the server to be killed
 	import std.stdio : File;
@@ -112,7 +100,10 @@ int main(string[] args)
 
 	logInfo("Phase 3: Attempting operations after server restart");
 
-	// The pool has connections to the old server. They should be evicted.
+	auto coll = clients[0].getCollection("deadconn_test.items");
+
+	// Every pooled connection is dead now. Each one has to be closed when it is
+	// evicted, or its socket stays open until the process ends.
 	bool success = false;
 	try
 	{
@@ -123,15 +114,13 @@ int main(string[] args)
 		enforce(!doc.isNull, "Inserted document not found after restart");
 		enforce(doc["value"].get!string == "after-restart", "Document content mismatch");
 
-		// Every pooled connection is dead now. Each one has to be closed when it is
-		// evicted, or its socket stays open until the process ends.
-		runConcurrently(coll, pooledConnections);
+		insertThroughEach(clients, "after-restart");
 
-		const descriptorsAfterRestart = openFileDescriptors();
-		logInfo("%s descriptors open before the restart, %s after", descriptorsBeforeRestart, descriptorsAfterRestart);
-		enforce(descriptorsAfterRestart <= descriptorsBeforeRestart,
-			"Evicted connections were not closed: " ~ descriptorsBeforeRestart.to!string
-			~ " descriptors before the restart, " ~ descriptorsAfterRestart.to!string ~ " after");
+		const socketsAfterRestart = openSockets();
+		logInfo("%s sockets open before the restart, %s after", socketsBeforeRestart, socketsAfterRestart);
+		enforce(socketsAfterRestart <= socketsBeforeRestart,
+			"Evicted connections were not closed: " ~ socketsBeforeRestart.to!string
+			~ " sockets before the restart, " ~ socketsAfterRestart.to!string ~ " after");
 
 		success = true;
 	}
