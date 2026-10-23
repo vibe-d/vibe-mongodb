@@ -15,13 +15,10 @@ if [[ $PARTS =~ (^|,)mongo(,|$) ]]; then
     mongod --version
 
     # Servers up to 5.0 ship the legacy shell, 6.0 and later ship mongosh.
-    # On GitHub Actions mongosh has been seen to finish its work and then never
-    # exit, which stalled a job until its 60 minute limit. The timeout keeps a
-    # stuck shell from taking the whole job down with it.
     if command -v mongo &>/dev/null; then
-        export MONGO="timeout 120 mongo"
+        export MONGO=mongo
     elif command -v mongosh &>/dev/null; then
-        export MONGO="timeout 120 mongosh"
+        export MONGO=mongosh
     else
         echo "Neither mongo nor mongosh is installed to send client commands"
         exit 1

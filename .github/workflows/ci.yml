@@ -22,8 +22,13 @@ jobs:
     name: MongoDB ${{ matrix.mongo }}
     runs-on: ubuntu-latest
     # A fixed jammy image, so the server packages below keep resolving whatever
-    # ubuntu-latest moves to.
-    container: ubuntu:22.04
+    # ubuntu-latest moves to. The job container's PID 1 is `tail -f /dev/null`,
+    # which never reaps orphans: a killed `mongod --fork` stays a zombie, so
+    # `kill -0` keeps succeeding and the scripts' wait loops never end. --init
+    # puts a reaping init in front of it.
+    container:
+      image: ubuntu:22.04
+      options: --init
     timeout-minutes: 60
     strategy:
       fail-fast: false
