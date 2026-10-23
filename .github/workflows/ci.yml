@@ -1,0 +1,83 @@
+name: CI
+
+on: [push, pull_request]
+
+jobs:
+  # Unit tests need no MongoDB server.
+  unittests:
+    name: Unit tests (${{ matrix.dc }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        dc: [dmd-latest, ldc-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dlang-community/setup-dlang@v2
+        with:
+          compiler: ${{ matrix.dc }}
+      - run: PARTS=unittests ./run-ci.sh
+
+  integration:
+    name: MongoDB ${{ matrix.mongo }}
+    runs-on: ubuntu-latest
+    # A fixed jammy image, so the server packages below keep resolving whatever
+    # ubuntu-latest moves to.
+    container: ubuntu:22.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        mongo: ["3.6", "4.0", "4.2", "4.4", "5.0", "6.0", "7.0", "8.0"]
+    env:
+      DEBIAN_FRONTEND: noninteractive
+      MONGO: ${{ matrix.mongo }}
+      MONGO_REPO: https://repo.mongodb.org/apt/ubuntu/dists
+      MONGOSH: https://downloads.mongodb.com/compass/mongodb-mongosh_2.5.0_amd64.deb
+      MONGO_TOOLS: https://fastdl.mongodb.org/tools/db/mongodb-database-tools-ubuntu2204-x86_64-100.12.0.deb
+    steps:
+      # libssl-dev provides the libssl.so/libcrypto.so the linker needs for
+      # vibe-stream:tls. The libssl1.1 package installed below for the older
+      # servers is a runtime library only and does not satisfy -lssl.
+      - name: Install build tools
+        run: |
+          apt-get update -qq
+          apt-get install -y -qq --no-install-recommends \
+            ca-certificates curl wget git xz-utils build-essential \
+            libssl-dev pkg-config
+      - uses: actions/checkout@v4
+      # Servers up to 5.0 ship the legacy `mongo` shell and link against OpenSSL
+      # 1.1, which jammy dropped. 6.0 and later use mongosh.
+      - name: Install MongoDB ${{ matrix.mongo }}
+        run: |
+          mkdir -p /tmp/debs
+          case "$MONGO" in
+            3.6) DIST=bionic; VER=3.6.23; LEGACY=1 ;;
+            4.0) DIST=bionic; VER=4.0.28; LEGACY=1 ;;
+            4.2) DIST=bionic; VER=4.2.25; LEGACY=1 ;;
+            4.4) DIST=focal;  VER=4.4.29; LEGACY=1 ;;
+            5.0) DIST=focal;  VER=5.0.31; LEGACY=1 ;;
+            6.0) DIST=jammy;  VER=6.0.23; LEGACY=0 ;;
+            7.0) DIST=jammy;  VER=7.0.20; LEGACY=0 ;;
+            8.0) DIST=jammy;  VER=8.0.9;  LEGACY=0 ;;
+          esac
+          BASE="$MONGO_REPO/$DIST/mongodb-org/$MONGO/multiverse/binary-amd64"
+          wget -qO /tmp/debs/server.deb "$BASE/mongodb-org-server_${VER}_amd64.deb"
+          wget -qO /tmp/debs/tools.deb "$MONGO_TOOLS"
+          if [ "$LEGACY" = 1 ]; then
+            wget -qO /tmp/debs/shell.deb "$BASE/mongodb-org-shell_${VER}_amd64.deb"
+            # Refresh this URL if the Ubuntu security pool rotates the point release.
+            wget -qO /tmp/debs/libssl1.1.deb \
+              http://security.ubuntu.com/ubuntu/pool/main/o/openssl/libssl1.1_1.1.1f-1ubuntu2.24_amd64.deb
+          else
+            wget -qO /tmp/debs/shell.deb "$MONGOSH"
+          fi
+          # apt resolves dependencies for local debs, dpkg -i does not.
+          apt-get install -y -qq /tmp/debs/*.deb
+          mongod --version
+      - uses: dlang-community/setup-dlang@v2
+        with:
+          compiler: dmd-latest
+      - run: PARTS=mongo ./run-ci.sh
+        env:
+          DC: dmd
