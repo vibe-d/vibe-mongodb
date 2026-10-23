@@ -834,11 +834,34 @@ struct DeleteOptions {
 
 struct InsertOneResult {
 	/**
-		The identifier of the inserted document. Generated when the document had no
-		`_id`; otherwise the client-supplied id verbatim, which may be any BSON type
+		The identifier of the inserted document when it is an ObjectID, generated
+		or client-supplied. `BsonObjectID.init` when the id has another BSON type;
+		use `insertedIdValue` to read those.
+	*/
+	BsonObjectID insertedId;
+
+	/**
+		The identifier of the inserted document verbatim, which may be any BSON type
 		(int, string, UUID, …), not only an ObjectID.
 	*/
-	Bson insertedId;
+	Bson insertedIdValue;
+}
+
+/// Builds the result of an insert from the inserted document's `_id`.
+InsertOneResult insertOneResult(Bson id) @safe
+{
+	return InsertOneResult(objectIdOrInit(id), id);
+}
+
+/// insertOneResult fills both fields for an ObjectID id
+unittest {
+	auto id = BsonObjectID.generate;
+	assert(insertOneResult(Bson(id)) == InsertOneResult(id, Bson(id)));
+}
+
+/// insertOneResult leaves insertedId unset for a string id
+unittest {
+	assert(insertOneResult(Bson("pizza")) == InsertOneResult(BsonObjectID.init, Bson("pizza")));
 }
 
 struct InsertManyResult {
@@ -871,11 +894,52 @@ struct UpdateResult {
 	long modifiedCount;
 
 	/**
-		The identifiers of the documents inserted by an upsert. Empty when no upsert
-		took place; can be multiple via the updateImpl helper. Each id may be any BSON
-		type (int, string, UUID, …), not only an ObjectID.
+		The identifiers of the documents inserted by an upsert, as ObjectIDs. Empty
+		when no upsert took place; can be multiple via the updateImpl helper. An id
+		of another BSON type is recorded as `BsonObjectID.init`; use
+		`upsertedIdValues` to read those.
 	*/
-	Bson[] upsertedIds;
+	BsonObjectID[] upsertedIds;
+
+	/**
+		The identifiers of the documents inserted by an upsert verbatim, parallel to
+		`upsertedIds`. Each id may be any BSON type (int, string, UUID, …).
+	*/
+	Bson[] upsertedIdValues;
+}
+
+/// Records the `_id` of a document inserted by an upsert.
+void addUpsertedId(ref UpdateResult result, Bson id) @safe
+{
+	result.upsertedIds ~= objectIdOrInit(id);
+	result.upsertedIdValues ~= id;
+}
+
+/// addUpsertedId keeps upsertedIds and upsertedIdValues parallel
+unittest {
+	auto id = BsonObjectID.generate;
+	UpdateResult result;
+	result.addUpsertedId(Bson(id));
+	result.addUpsertedId(Bson(4));
+	assert(result.upsertedIds == [id, BsonObjectID.init]);
+	assert(result.upsertedIdValues == [Bson(id), Bson(4)]);
+}
+
+/// The ObjectID held by `id`, or `BsonObjectID.init` when it has another BSON type.
+BsonObjectID objectIdOrInit(Bson id) @safe
+{
+	return id.type == Bson.Type.objectID ? id.get!BsonObjectID : BsonObjectID.init;
+}
+
+/// objectIdOrInit returns the ObjectID of an ObjectID value
+unittest {
+	auto id = BsonObjectID.generate;
+	assert(objectIdOrInit(Bson(id)) == id);
+}
+
+/// objectIdOrInit returns BsonObjectID.init for an int value
+unittest {
+	assert(objectIdOrInit(Bson(4)) == BsonObjectID.init);
 }
 
 /**

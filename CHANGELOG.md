@@ -9,6 +9,21 @@
 - Modules are back under their original `vibe.db.mongo` names. Code written against
   `vibe-mongodriver` needs its `vibe.db.mongodriver` imports renamed (see the README). Code written
   against `vibe-d:mongodb` compiles unchanged.
+- `InsertOneResult.insertedId` is a `BsonObjectID` again and `UpdateResult.upsertedIds` a
+  `BsonObjectID[]`, as in `vibe-d:mongodb`. Ids of any other BSON type are reported as
+  `BsonObjectID.init` there. Read the new `insertedIdValue` and `upsertedIdValues` fields for the
+  verbatim id of any type.
+
+### Added
+
+- `InsertOneResult.insertedIdValue` and `UpdateResult.upsertedIdValues`, carrying the inserted or
+  upserted `_id` as `Bson`.
+
+### Fixed
+
+- `insertOne` reports the id of a document that already had an `_id`, not only of generated ones.
+- Upserting a document whose `_id` is not an ObjectID no longer throws while reading the result, a
+  bug still present in `vibe-d:mongodb`.
 
 ### Changed
 

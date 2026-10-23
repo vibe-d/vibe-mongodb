@@ -150,14 +150,14 @@ private void collectVerboseResults(Bson response, ClientBulkWriteModel[] models,
 				// from matchedCount (n - 1) and record its id (any BSON type).
 				if (!upserted.isNull) {
 					ur.matchedCount = entry["n"].to!long - 1;
-					ur.upsertedIds = [upserted.get["_id"]];
+					ur.addUpsertedId(upserted.get["_id"]);
 				} else {
 					ur.matchedCount = entry["n"].to!long;
 				}
 				result.updateResults[idx] = ur;
 				break;
 			case ClientBulkWriteType.insertOne:
-				result.insertResults[idx] = InsertOneResult(models[idx].document["_id"]);
+				result.insertResults[idx] = insertOneResult(models[idx].document["_id"]);
 				break;
 		}
 	}
@@ -1025,10 +1025,10 @@ unittest {
 
 	assert(result.updateResults[0].matchedCount == 0, "an upsert is counted under nUpserted, not as a match (n - 1)");
 	assert(result.updateResults[0].modifiedCount == 0);
-	assert(result.updateResults[0].upsertedIds == [Bson(upsertId)], "the upserted id is recorded");
+	assert(result.updateResults[0].upsertedIdValues == [Bson(upsertId)], "the upserted id is recorded");
 }
 
-// populates insertResults[idx].insertedId from the model document _id when verbose and an insert success entry is in cursor.firstBatch
+// populates insertResults[idx].insertedIdValue from the model document _id when verbose and an insert success entry is in cursor.firstBatch
 unittest {
 	auto id = BsonObjectID.generate();
 	auto response = Bson([
@@ -1050,7 +1050,7 @@ unittest {
 
 	assert(result.hasVerboseResults == true);
 	assert(0 in result.insertResults);
-	assert(result.insertResults[0].insertedId == Bson(id));
+	assert(result.insertResults[0].insertedIdValue == Bson(id));
 }
 
 // reports a non-ObjectID insert _id (e.g. an int) verbatim instead of crashing
@@ -1067,7 +1067,7 @@ unittest {
 
 	auto result = parseClientBulkWriteResult(response, models, true);
 
-	assert(result.insertResults[0].insertedId == Bson(4),
+	assert(result.insertResults[0].insertedIdValue == Bson(4),
 		"a non-ObjectID _id is reported verbatim, not coerced through BsonObjectID");
 }
 
@@ -1098,7 +1098,7 @@ unittest {
 	assert(result.insertResults.length == 1);
 	assert(result.updateResults.length == 1);
 	assert(result.deleteResults.length == 1);
-	assert(result.insertResults[0].insertedId == Bson(id));
+	assert(result.insertResults[0].insertedIdValue == Bson(id));
 	assert(result.updateResults[1].matchedCount == 1);
 	assert(result.updateResults[1].modifiedCount == 1);
 	assert(result.deleteResults[2].deletedCount == 1);

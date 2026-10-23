@@ -162,12 +162,9 @@ struct MongoCollection {
 		cmd["insert"] = Bson(m_name);
 		auto doc = serializeToBson(document);
 		enforce(doc.type == Bson.Type.object, "Can only insert objects into collections");
-		InsertOneResult res;
 		if ("_id" !in doc.get!(Bson[string]))
-		{
-			res.insertedId = Bson(BsonObjectID.generate);
-			doc["_id"] = res.insertedId;
-		}
+			doc["_id"] = Bson(BsonObjectID.generate);
+		InsertOneResult res = insertOneResult(doc["_id"]);
 		cmd["documents"] = Bson([doc]);
 		MongoConnection conn = m_client.lockConnectionToPrimary();
 		enforceWireVersionConstraints(options, conn.description.maxWireVersion);
@@ -421,15 +418,8 @@ struct MongoCollection {
 			res["nModified"].to!long,
 		);
 		res.handleWriteResult(ret);
-		auto upserted = res["upserted"].opt!(Bson[]);
-		if (upserted.length)
-		{
-			ret.upsertedIds.length = upserted.length;
-			foreach (i, upsert; upserted)
-			{
-				ret.upsertedIds[i] = upsert["_id"];
-			}
-		}
+		foreach (upsert; res["upserted"].opt!(Bson[]))
+			ret.addUpsertedId(upsert["_id"]);
 		return ret;
 	}
 

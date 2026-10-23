@@ -131,6 +131,10 @@ imports:
 find . -name '*.d' -exec sed -i -E 's/vibe\.db\.mongodriver\b/vibe.db.mongo/g' {} +
 ```
 
+`InsertOneResult.insertedId` and `UpdateResult.upsertedIds` hold `BsonObjectID` values again, as
+in `vibe-d:mongodb`. Code that relied on them carrying ids of any BSON type should read
+`insertedIdValue` and `upsertedIdValues` instead.
+
 ## Running the tests
 
 Unit tests need nothing but a compiler:
