@@ -2,6 +2,6 @@
     "name": "readconcern-test",
     "description": "MongoDB readConcern integration tests",
     "dependencies": {
-        "vibe-mongodriver": {"path": "../../"}
+        "vibe-mongodb": {"path": "../../"}
     }
 }

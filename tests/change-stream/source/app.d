@@ -15,8 +15,8 @@
 module app;
 
 import vibe.data.bson;
-import vibe.db.mongodriver.mongo;
-import vibe.db.mongodriver.impl.changestream : ChangeStreamOptions, ChangeStreamFullDocument;
+import vibe.db.mongo.mongo;
+import vibe.db.mongo.impl.changestream : ChangeStreamOptions, ChangeStreamFullDocument;
 
 import vibe.core.log;
 import vibe.core.core : sleep;

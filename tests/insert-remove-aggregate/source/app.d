@@ -6,7 +6,7 @@ module app;
 import vibe.core.core;
 import vibe.core.log;
 import vibe.data.bson;
-import vibe.db.mongodriver.mongo;
+import vibe.db.mongo.mongo;
 
 import std.algorithm : all, canFind, equal, map, sort;
 import std.array : array;

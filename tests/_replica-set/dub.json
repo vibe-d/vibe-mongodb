@@ -2,7 +2,7 @@
 	"name": "replica-set-test",
 	"description": "MongoDB replica set connection tests",
 	"dependencies": {
-		"vibe-mongodriver": {"path": "../../"}
+		"vibe-mongodb": {"path": "../../"}
 	},
 	"debugVersions": ["VibeVerboseMongo"]
 }

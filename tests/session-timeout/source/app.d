@@ -9,10 +9,10 @@
 module app;
 
 import vibe.data.bson;
-import vibe.db.mongodriver.mongo;
-import vibe.db.mongodriver.settings;
-import vibe.db.mongodriver.connection : ServerDescription;   // public-imported from impl.serverdescription
-import vibe.db.mongodriver.topology : logicalSessionTimeout;
+import vibe.db.mongo.mongo;
+import vibe.db.mongo.settings;
+import vibe.db.mongo.connection : ServerDescription;   // public-imported from impl.serverdescription
+import vibe.db.mongo.topology : logicalSessionTimeout;
 
 import core.time : minutes;
 import std.conv : to;

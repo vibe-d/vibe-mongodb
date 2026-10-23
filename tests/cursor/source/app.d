@@ -6,7 +6,7 @@ module app;
 import vibe.core.core;
 import vibe.core.log;
 import vibe.data.bson;
-import vibe.db.mongodriver.mongo;
+import vibe.db.mongo.mongo;
 
 import std.algorithm : equal, map, sort;
 import std.array : array;
@@ -38,7 +38,7 @@ void runTest(ushort port)
 
 void testCursorEdgeCases(MongoClient client)
 {
-	import vibe.db.mongodriver.impl.crud : FindOptions;
+	import vibe.db.mongo.impl.crud : FindOptions;
 
 	auto coll = client.getCollection("test.cursor_edge");
 	coll.deleteAll();

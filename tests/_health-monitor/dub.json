@@ -2,7 +2,7 @@
 	"name": "health-monitor-test",
 	"description": "MongoDB background health monitoring failover test",
 	"dependencies": {
-		"vibe-mongodriver": {"path": "../../"}
+		"vibe-mongodb": {"path": "../../"}
 	},
 	"debugVersions": ["VibeVerboseMongo"]
 }

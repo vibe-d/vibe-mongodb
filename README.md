@@ -1,32 +1,19 @@
-# vibe-mongodriver
+# vibe-mongodb
 
-A MongoDB database client for D. Speaks the modern wire protocol and supports MongoDB servers up to
-8.0.
+A MongoDB database client for D, built on [vibe.d](https://github.com/vibe-d/vibe.d). Speaks the
+modern wire protocol and supports MongoDB servers up to 8.0.
 
-It is a maintained continuation of the driver that ships inside vibe.d as `vibe-d:mongodb`, with the
-API kept compatible and a large amount of work added on top: server discovery and monitoring,
-transactions, change streams, GridFS, field level encryption, and MongoDB 8 bulk writes.
+This is the driver behind `vibe-d:mongodb`. It used to live inside the vibe.d repository and now has
+its own, so it can be released and tested against the full range of MongoDB servers independently.
+The `vibe.db.mongo` module names and the API are unchanged.
 
 ```json
 "dependencies": {
-	"vibe-mongodriver": "~>1.0.0"
+	"vibe-mongodb": "~>2.0.0"
 }
 ```
 
-## Why this exists
-
-This library started as MongoDB work inside a fork of vibe.d. It became its own package for two
-reasons.
-
-The first is that contributing to upstream vibe.d is hard. The work here spans 90 commits across what
-amounts to a driver rewrite, and getting changes of that size reviewed and merged upstream has not
-been practical. Rather than let the work sit in a private fork forever, it is published here so
-anyone can use it.
-
-The second is that the gap is worth closing. Not supporting modern MongoDB versions and features is
-one of the bigger reasons people pass on vibe.d for a new project. If you need transactions, change
-streams, or a driver that talks to a MongoDB 8 server properly, the answer should not have to be "use
-another language". This package is that answer.
+Depending on `vibe-d:mongodb` keeps working too: that subpackage forwards to this one.
 
 ## Features
 
@@ -85,7 +72,7 @@ change streams need a replica set or a sharded cluster, and server level `bulkWr
 ## Usage
 
 ```d
-import vibe.db.mongodriver.mongo;
+import vibe.db.mongo.mongo;
 
 auto client = connectMongoDB("127.0.0.1");
 auto users = client.getCollection("myapp.users");
@@ -131,18 +118,18 @@ argument.
 
 ## Migrating from `vibe-d:mongodb`
 
-The API is unchanged. Only the module names differ, so migration is one command:
+No code changes are needed. Either keep depending on `vibe-d:mongodb`, or replace it with
+`vibe-mongodb` in your `dub.json`. Module names are the same, so imports stay as they are.
+
+### Migrating from `vibe-mongodriver`
+
+`vibe-mongodriver` was the name of this package before it moved into the vibe-d organization. Its
+modules lived under `vibe.db.mongodriver`. Switch the dependency to `vibe-mongodb` and rename the
+imports:
 
 ```sh
-find . -name '*.d' -exec sed -i -E 's/vibe\.db\.mongo\b/vibe.db.mongodriver/g' {} +
+find . -name '*.d' -exec sed -i -E 's/vibe\.db\.mongodriver\b/vibe.db.mongo/g' {} +
 ```
-
-Because only the module names differ, **both packages can be linked into the same binary**. Nothing
-collides. A large codebase can therefore move one module at a time instead of all at once, and a
-library that still imports `vibe.db.mongo` will not stop your application from using this driver
-elsewhere.
-
-The rewrite above matches on a word boundary, so running it twice is a no op.
 
 ## Running the tests
 
@@ -168,8 +155,8 @@ capability the running server does not have will skip themselves rather than fai
 
 ## Tracking upstream
 
-`import-upstream.sh` applies a commit from a vibe.d checkout to this repository, translating paths and
-module names as it goes:
+`import-upstream.sh` applies a commit from a vibe.d checkout that touches the old `mongodb/`
+subpackage to this repository, translating paths as it goes:
 
 ```sh
 ./import-upstream.sh <upstream-sha> ~/src/vibe.d
@@ -182,7 +169,8 @@ Sönke Ludwig and contributors. This repository preserves that history: the comm
 ones, filtered out of the vibe.d tree with `git-filter-repo`, not a flattened import.
 
 `docs/history-map.txt` maps every commit in this repository back to its original SHA in
-`gedaiu/vibe.d`, so provenance stays traceable.
+`gedaiu/vibe.d`, so provenance stays traceable. Those SHAs predate the move back to the
+`vibe.db.mongo` module names.
 
 ## License
 

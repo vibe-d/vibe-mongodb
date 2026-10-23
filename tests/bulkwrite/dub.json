@@ -2,6 +2,6 @@
     "name": "tests",
     "description": "MongoDB 8.0 server-level bulkWrite integration test for vibe.d",
     "dependencies": {
-        "vibe-mongodriver": {"path": "../../"}
+        "vibe-mongodb": {"path": "../../"}
     }
 }

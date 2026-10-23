@@ -2,6 +2,6 @@
     "name": "transactions-test",
     "description": "MongoDB multi-document transaction end-to-end integration test (requires a replica set)",
     "dependencies": {
-        "vibe-mongodriver": {"path": "../../"}
+        "vibe-mongodb": {"path": "../../"}
     }
 }

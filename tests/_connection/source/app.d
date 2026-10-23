@@ -1,5 +1,5 @@
-import vibe.db.mongodriver.mongo;
-import vibe.db.mongodriver.client;
+import vibe.db.mongo.mongo;
+import vibe.db.mongo.client;
 import vibe.data.bson;
 import vibe.core.core;
 import vibe.core.log;

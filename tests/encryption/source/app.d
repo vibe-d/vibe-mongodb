@@ -19,13 +19,13 @@
 	encryption, and libmongocrypt's on-the-wire blob format.
 
 	Needs a running mongod (any version, this is just binary storage). The
-	encryption symbols come in through the vibe.db.mongodriver.mongo umbrella.
+	encryption symbols come in through the vibe.db.mongo.mongo umbrella.
 */
 module app;
 
 import vibe.core.log;
 import vibe.data.bson;
-import vibe.db.mongodriver.mongo;
+import vibe.db.mongo.mongo;
 
 import std.algorithm : canFind;
 import std.conv : to;

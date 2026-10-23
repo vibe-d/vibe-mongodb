@@ -10,4 +10,5 @@
 docs.json
 __dummy.html
 __test__*__
-vibe-mongodriver-test-library
+vibe-mongodb-test-library
+tests/*/log*.txt*

@@ -1,6 +1,6 @@
-import vibe.db.mongodriver.mongo;
-import vibe.db.mongodriver.client;
-import vibe.db.mongodriver.settings;
+import vibe.db.mongo.mongo;
+import vibe.db.mongo.client;
+import vibe.db.mongo.settings;
 import vibe.core.core;
 import vibe.core.log;
 import vibe.data.bson;

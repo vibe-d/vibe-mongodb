@@ -6,9 +6,9 @@
 module app;
 
 import vibe.data.bson;
-import vibe.db.mongodriver.mongo;
-import vibe.db.mongodriver.settings;
-import vibe.db.mongodriver.impl.serverapi : ServerApi, ServerApiVersion;
+import vibe.db.mongo.mongo;
+import vibe.db.mongo.settings;
+import vibe.db.mongo.impl.serverapi : ServerApi, ServerApiVersion;
 
 import std.conv : to;
 

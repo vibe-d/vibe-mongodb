@@ -2,6 +2,6 @@
     "name": "tests",
     "description": "High level MongoDB test for vibe.d",
     "dependencies": {
-        "vibe-mongodriver": {"path": "../../"}
+        "vibe-mongodb": {"path": "../../"}
     }
 }

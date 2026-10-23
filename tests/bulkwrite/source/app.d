@@ -5,7 +5,7 @@ module app;
 
 import vibe.core.log;
 import vibe.data.bson;
-import vibe.db.mongodriver.mongo;
+import vibe.db.mongo.mongo;
 
 import std.conv : to;
 

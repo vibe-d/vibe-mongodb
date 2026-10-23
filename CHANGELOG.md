@@ -1,5 +1,20 @@
 # Changelog
 
+## v2.0.0
+
+### Breaking
+
+- The package moved to the vibe-d organization and is now called `vibe-mongodb`. It replaces the
+  driver that used to ship inside vibe.d as `vibe-d:mongodb`, which now forwards to this package.
+- Modules are back under their original `vibe.db.mongo` names. Code written against
+  `vibe-mongodriver` needs its `vibe.db.mongodriver` imports renamed (see the README). Code written
+  against `vibe-d:mongodb` compiles unchanged.
+
+### Changed
+
+- The connection handshake reports the driver name as `vibe.db.mongo` again, matching what servers
+  saw from `vibe-d:mongodb`.
+
 ## v1.1.1
 
 ### Fixed

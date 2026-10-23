@@ -2,7 +2,7 @@
 	"name": "dead-connections-test",
 	"description": "Tests that dead MongoDB connections are evicted from the pool",
 	"dependencies": {
-		"vibe-mongodriver": {"path": "../../"}
+		"vibe-mongodb": {"path": "../../"}
 	},
 	"debugVersions": ["VibeVerboseMongo"]
 }

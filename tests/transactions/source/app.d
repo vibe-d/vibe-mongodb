@@ -13,9 +13,9 @@
 module app;
 
 import vibe.data.bson;
-import vibe.db.mongodriver.mongo;
-import vibe.db.mongodriver.collection : InsertOneOptions, InsertManyOptions, UpdateOptions, DeleteOptions, FindOptions;
-import vibe.db.mongodriver.connection : MongoException;
+import vibe.db.mongo.mongo;
+import vibe.db.mongo.collection : InsertOneOptions, InsertManyOptions, UpdateOptions, DeleteOptions, FindOptions;
+import vibe.db.mongo.connection : MongoException;
 
 import std.algorithm : canFind;
 import std.conv : to;

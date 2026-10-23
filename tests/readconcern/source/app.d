@@ -4,8 +4,8 @@
 module app;
 
 import vibe.data.bson;
-import vibe.db.mongodriver.mongo;
-import vibe.db.mongodriver.settings;
+import vibe.db.mongo.mongo;
+import vibe.db.mongo.settings;
 
 import std.conv : to;
 
@@ -59,7 +59,7 @@ void testPerOperationOverride(ushort port)
 	auto data = coll.find(Bson.emptyObject).front;
 	assert(data["key"].get!string == "value");
 
-	import vibe.db.mongodriver.impl.crud : FindOptions;
+	import vibe.db.mongo.impl.crud : FindOptions;
 	FindOptions opts;
 	opts.readConcern = ReadConcern("local");
 	auto data2 = coll.find(Bson.emptyObject, opts).front;
