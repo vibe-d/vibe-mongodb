@@ -54,6 +54,36 @@ package(vibe.db.mongo) bool isValidLoadBalancedConfig(in MongoClientSettings cfg
 	return true;
 }
 
+/// Validates direct-connection mode: the client talks to the one named host and
+/// runs no discovery, so it needs exactly one seed, cannot combine with a DNS
+/// seedlist (the seed is not known until it is resolved) and cannot combine with
+/// load-balancer mode. Logs and returns false on violation.
+package(vibe.db.mongo) bool isValidDirectConnectionConfig(in MongoClientSettings cfg) @safe
+{
+	if (!cfg.directConnection)
+		return true;
+
+	if (cfg.srv)
+	{
+		logError("directConnection=true is incompatible with mongodb+srv://");
+		return false;
+	}
+
+	if (cfg.loadBalanced)
+	{
+		logError("directConnection=true is incompatible with loadBalanced=true");
+		return false;
+	}
+
+	if (cfg.hosts.length > 1)
+	{
+		logError("directConnection=true requires a single host");
+		return false;
+	}
+
+	return true;
+}
+
 /// Whether a `maxStalenessSeconds` value is valid for the configured heartbeat. `-1`
 /// (disabled) is always valid; otherwise the spec requires it to be at least
 /// `max(90, heartbeatFrequencyMS/1000 + 10)`.
@@ -270,6 +300,7 @@ bool parseMongoDBUrl(out MongoClientSettings cfg, string url)
 				case "tls":
 				case "ssl": setBool(cfg.ssl); break;
 				case "loadbalanced": setBool(cfg.loadBalanced); cfg.loadBalancedSpecified = true; break;
+				case "directconnection": setBool(cfg.directConnection); break;
 				case "sslverifycertificate": setBool(cfg.sslverifycertificate); break;
 				case "authmechanism": cfg.authMechanism = parseAuthMechanism(value); break;
 				case "authmechanismproperties": cfg.authMechanismProperties = value.split(","); warnNotImplemented(); break;
@@ -310,6 +341,9 @@ bool parseMongoDBUrl(out MongoClientSettings cfg, string url)
 	}
 
 	if (!isValidLoadBalancedConfig(cfg))
+		return false;
+
+	if (!isValidDirectConnectionConfig(cfg))
 		return false;
 
 	if (!isValidMaxStaleness(cfg.maxStalenessSeconds, cfg.heartbeatFrequencyMS))
@@ -711,6 +745,69 @@ unittest
 
 	assert(parseMongoDBUrl(cfg, "mongodb://localhost/?retryWrites=false"));
 	assert(cfg.retryWrites == false, "retryWrites=false disables retryable writes");
+}
+
+/// parseMongoDBUrl parses directConnection=true
+unittest
+{
+	MongoClientSettings cfg;
+
+	assert(parseMongoDBUrl(cfg, "mongodb://localhost/?directConnection=true"));
+	assert(cfg.directConnection);
+}
+
+/// MongoClientSettings leaves directConnection off by default
+unittest
+{
+	MongoClientSettings cfg;
+
+	assert(parseMongoDBUrl(cfg, "mongodb://localhost/"));
+	assert(!cfg.directConnection);
+}
+
+/// parseMongoDBUrl accepts directConnection combined with replicaSet
+unittest
+{
+	MongoClientSettings cfg;
+
+	assert(parseMongoDBUrl(cfg, "mongodb://localhost/?directConnection=true&replicaSet=rs0"));
+	assert(cfg.directConnection && cfg.replicaSet == "rs0");
+}
+
+/// parseMongoDBUrl rejects directConnection with more than one seed host
+unittest
+{
+	MongoClientSettings cfg;
+
+	assert(!parseMongoDBUrl(cfg, "mongodb://host1:27017,host2:27017/?directConnection=true"),
+		"directConnection=true requires a single host");
+}
+
+/// parseMongoDBUrl rejects directConnection combined with loadBalanced
+unittest
+{
+	MongoClientSettings cfg;
+
+	assert(!parseMongoDBUrl(cfg, "mongodb://localhost/?loadBalanced=true&directConnection=true"),
+		"directConnection=true is incompatible with loadBalanced=true");
+}
+
+/// parseMongoDBUrl rejects directConnection on a mongodb+srv URL
+unittest
+{
+	MongoClientSettings cfg;
+
+	assert(!parseMongoDBUrl(cfg, "mongodb+srv://cluster.example.com/?directConnection=true"),
+		"directConnection=true is incompatible with a DNS seedlist");
+}
+
+/// parseMongoDBUrl accepts directConnection=false on a multi-host URL
+unittest
+{
+	MongoClientSettings cfg;
+
+	assert(parseMongoDBUrl(cfg, "mongodb://host1:27017,host2:27017/?directConnection=false"));
+	assert(!cfg.directConnection);
 }
 
 /// parseMongoDBUrl parses the loadBalanced option
@@ -1649,6 +1746,13 @@ class MongoClientSettings
 	/// True when the connection string explicitly set `loadBalanced`, so a mongodb+srv
 	/// TXT record's `loadBalanced` option must not override it (the URI takes precedence).
 	bool loadBalancedSpecified;
+
+	/// Connects to the one configured host as a standalone (`directConnection=true`):
+	/// no replica-set discovery, no monitoring of other members, every command goes
+	/// to the host exactly as it was named. The escape hatch when a member must be
+	/// reached under a name the set does not advertise, or a specific member
+	/// (a secondary, a hidden node) must be addressed directly.
+	bool directConnection;
 
 	/**
 	 * Can be set to false to disable TLS peer validation to allow self signed

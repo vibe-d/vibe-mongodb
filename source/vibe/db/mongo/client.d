@@ -663,7 +663,9 @@ final class MongoClient {
 
 		// A newly discovered host may itself report further hosts we don't know
 		// about yet, so keep probing until a full pass turns up nothing new.
-		for (bool foundNew = true; foundNew; ) {
+		// directConnection pins the client to the named host and skips this: a
+		// single topology's allKnownHosts() never expands the member list anyway.
+		for (bool foundNew = !m_settings.directConnection; foundNew; ) {
 			foundNew = false;
 
 			foreach (host; newTopology.allKnownHosts()) {
@@ -728,6 +730,9 @@ final class MongoClient {
 
 	private TopologyType initialTopologyType()
 	{
+		if (m_settings.directConnection)
+			return TopologyType.single;
+
 		if (m_settings.replicaSet.length)
 			return TopologyType.replicaSetNoPrimary;
 

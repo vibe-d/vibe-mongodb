@@ -89,7 +89,13 @@ Connection strings are supported in full:
 ```d
 auto client = connectMongoDB("mongodb://user:password@host1,host2/?replicaSet=rs0&readPreference=secondaryPreferred");
 auto srv    = connectMongoDB("mongodb+srv://user:password@cluster.example.com/");
+auto direct = connectMongoDB("mongodb://db-service:27017/?directConnection=true");
 ```
+
+`directConnection=true` talks to the one named host and skips replica-set discovery, for when a
+member must be reached under a name the set does not advertise or a specific member (a secondary,
+a hidden node) must be addressed directly. It requires a single host and cannot be combined with
+`mongodb+srv://` or `loadBalanced=true`.
 
 `MongoClient` runs background monitor tasks, so it is meant to be created once and shared between
 fibers in a thread. When you need a client with a bounded lifetime, `scopedMongoDB` returns a handle

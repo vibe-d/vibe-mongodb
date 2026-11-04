@@ -1,5 +1,15 @@
 # Changelog
 
+## v2.0.2
+
+### Added
+
+- The `directConnection=true` connection-string option (URI options spec). The client connects
+  to the one named host as a standalone topology, runs no replica-set discovery and monitors no
+  other member, so a member can be reached under an alias the set does not advertise, or a
+  specific secondary or hidden member can be addressed directly. It requires exactly one host and
+  is rejected together with `mongodb+srv://` or `loadBalanced=true`.
+
 ## v2.0.1
 
 ### Fixed

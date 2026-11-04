@@ -102,7 +102,9 @@ struct TopologyDescription
 		if (!setName.length && desc.setName.length)
 			setName = desc.setName;
 
-		if (desc.isPrimary)
+		// A single topology (directConnection) is pinned to the configured host:
+		// the primary's member list must neither replace it nor add anyone.
+		if (desc.isPrimary && type != TopologyType.single)
 		{
 			if (handleNewPrimary(host, desc))
 				pruneNonMembers(desc);
@@ -329,6 +331,11 @@ struct TopologyDescription
 		foreach (ref s; servers)
 		{
 			addHost(s.host);
+
+			// directConnection: the member list is not followed, so it is not monitored either.
+			if (type == TopologyType.single)
+				continue;
+
 			foreach (hostStr; chain(s.description.hosts, s.description.passives, s.description.arbiters))
 				addHost(parseHostPort(hostStr));
 		}
@@ -1345,6 +1352,66 @@ unittest
 
 	assert(topo.allKnownHosts().canFind(MongoHost("arb", 27017)),
 		"an arbiter advertised in the member list must be monitored");
+}
+
+/// allKnownHosts in a single topology ignores the member list, so directConnection monitors only the named host
+unittest
+{
+	TopologyDescription topo;
+	topo.type = TopologyType.single;
+	topo.seedCount = 1;
+	auto alias_ = MongoHost("db-service", 27017);
+
+	ServerDescription desc;
+	desc.isWritablePrimary = true;
+	desc.setName = "rs0";
+	desc.hosts = ["5.9.112.222:27017", "5.9.112.223:27017"];
+
+	topo.update(alias_, desc);
+
+	assert(topo.allKnownHosts() == [alias_],
+		"directConnection must not expand the member list into monitored hosts");
+}
+
+/// a single topology keeps an alias seed that a replica-set primary does not list, and stays single
+unittest
+{
+	TopologyDescription topo;
+	topo.type = TopologyType.single;
+	topo.seedCount = 1;
+	auto alias_ = MongoHost("db-service", 27017);
+
+	ServerDescription desc;
+	desc.isWritablePrimary = true;
+	desc.setName = "rs0";
+	desc.hosts = ["5.9.112.222:27017"];
+
+	topo.update(alias_, desc);
+
+	assert(topo.type == TopologyType.single);
+	assert(topo.servers.length == 1 && topo.servers[0].host == alias_,
+		"directConnection pins the topology to the configured host");
+	auto selected = selectServer(topo, ReadPreference.primary);
+	assert(!selected.isNull && selected.get == alias_);
+}
+
+/// a single topology keeps a secondary selectable for writes routed by the caller, and is not demoted by its member list
+unittest
+{
+	TopologyDescription topo;
+	topo.type = TopologyType.single;
+	topo.seedCount = 1;
+	auto secondary = MongoHost("5.9.112.223", 27017);
+
+	ServerDescription desc;
+	desc.secondary = true;
+	desc.setName = "rs0";
+	desc.hosts = ["5.9.112.222:27017", "5.9.112.223:27017"];
+
+	topo.update(secondary, desc);
+
+	assert(topo.servers.length == 1 && topo.servers[0].host == secondary);
+	assert(topo.allKnownHosts() == [secondary]);
 }
 
 /// allKnownHosts includes a server's own host even when its description carries no member list (standalone/sharded)
