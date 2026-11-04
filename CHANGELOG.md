@@ -1,5 +1,14 @@
 # Changelog
 
+## v2.0.1
+
+### Fixed
+
+- Topology discovery no longer fails with "No suitable server found" when the seed host is an
+  alias (a Kubernetes Service, a CNAME, a load-balancer name) that the replica set does not list
+  under that spelling. The primary's member list now adds unknown members before pruning
+  non-members, as SDAM's updateRSFromPrimary requires, so the real member is probed and selected.
+
 ## v2.0.0
 
 ### Breaking

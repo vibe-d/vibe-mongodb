@@ -162,6 +162,16 @@ struct TopologyDescription
 		return true;
 	}
 
+	/**
+	 * SDAM updateRSFromPrimary: the primary's member list is authoritative.
+	 * Every listed host that is not yet known is added as Unknown so discovery
+	 * and monitoring probe it, then every known host that is not listed is
+	 * removed. Adding before removing matters when the seed was an alias
+	 * (a Kubernetes Service, a CNAME, a load-balancer name) that the set does
+	 * not list under that spelling: the alias is pruned, and without the add
+	 * step the real member would never be probed and the topology would end
+	 * up empty.
+	 */
 	private void pruneNonMembers(ref const ServerDescription primaryDesc)
 	{
 		auto memberHosts = collectMemberHosts(primaryDesc);
@@ -176,6 +186,12 @@ struct TopologyDescription
 		{
 			if (memberHosts.canFind(s.host))
 				kept ~= s;
+		}
+
+		foreach (member; memberHosts)
+		{
+			if (!kept.canFind!(s => s.host == member))
+				kept ~= ServerRecord(member, ServerDescription.init);
 		}
 
 		servers = kept;
@@ -1532,6 +1548,55 @@ unittest
 	assert(topo.servers.length == 2);
 	assert(!topo.primaryHost.isNull);
 	assert(topo.primaryHost.get == hostA);
+}
+
+/// primary update adds listed members that were never seeded, so an alias seed still discovers the real member
+unittest
+{
+	import std.algorithm : canFind;
+
+	TopologyDescription topo;
+	topo.seedCount = 1;
+	auto alias_ = MongoHost("db-service", 27017);
+	auto member = MongoHost("5.9.112.222", 27017);
+
+	ServerDescription primaryDesc;
+	primaryDesc.isWritablePrimary = true;
+	primaryDesc.setName = "rs0";
+	primaryDesc.hosts = ["5.9.112.222:27017"];
+
+	topo.update(alias_, primaryDesc);
+
+	assert(topo.type == TopologyType.replicaSetWithPrimary);
+	assert(topo.servers.length == 1, "only the listed member is kept");
+	assert(topo.servers[0].host == member, "the alias seed is replaced by the member it resolves to");
+	assert(topo.servers[0].description.classifiedType() == ServerDescription.ServerType.unknown,
+		"the added member is Unknown until it is probed");
+	assert(topo.allKnownHosts().canFind(member), "discovery must probe the listed member");
+	assert(!topo.allKnownHosts().canFind(alias_), "the alias is no longer probed");
+}
+
+/// probing the member added from an alias seed yields a selectable primary
+unittest
+{
+	TopologyDescription topo;
+	topo.seedCount = 1;
+	auto alias_ = MongoHost("db-service", 27017);
+	auto member = MongoHost("5.9.112.222", 27017);
+
+	ServerDescription primaryDesc;
+	primaryDesc.isWritablePrimary = true;
+	primaryDesc.setName = "rs0";
+	primaryDesc.hosts = ["5.9.112.222:27017"];
+
+	topo.update(alias_, primaryDesc);
+	topo.update(member, primaryDesc);
+
+	assert(topo.servers.length == 1);
+	assert(!topo.primaryHost.isNull);
+	assert(topo.primaryHost.get == member);
+	auto selected = selectServer(topo, ReadPreference.primary);
+	assert(!selected.isNull && selected.get == member);
 }
 
 /// primary update keeps all servers in member list
