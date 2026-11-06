@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- `ChangeStreamOptions.fullDocumentBeforeChange` (`off`, `whenAvailable`, `required`). Update, replace
+  and delete events then carry the document as it was before the change, in `fullDocumentBeforeChange`.
+  The collection must have `changeStreamPreAndPostImages` enabled (MongoDB 6.0+).
+
 ## v2.0.2
 
 ### Added

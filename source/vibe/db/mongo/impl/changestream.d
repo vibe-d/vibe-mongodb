@@ -32,10 +32,22 @@ enum ChangeStreamFullDocument {
 	required,
 }
 
+/// Controls whether update, replace and delete events carry the document as it was before the change.
+enum ChangeStreamFullDocumentBeforeChange {
+	/// Omit the `fullDocumentBeforeChange` field (server default).
+	off,
+	/// Return the pre-image when the collection records one.
+	whenAvailable,
+	/// Require the pre-image, erroring when the collection does not record one.
+	required,
+}
+
 /// Options controlling how a change stream is opened.
 struct ChangeStreamOptions {
 	/// Which document version to return for update events.
 	ChangeStreamFullDocument fullDocument;
+	/// Whether events carry the pre-image (needs `changeStreamPreAndPostImages` on the collection).
+	ChangeStreamFullDocumentBeforeChange fullDocumentBeforeChange;
 	/// Resume token to restart the stream after a previously seen event.
 	Nullable!Bson resumeAfter;
 	/// Resume token to restart the stream after the named event, excluding it.
@@ -62,6 +74,10 @@ Bson changeStreamStage(ChangeStreamOptions options)
 	if (fullDocumentName !is null)
 		inner["fullDocument"] = Bson(fullDocumentName);
 
+	const beforeChangeName = mongoName(options.fullDocumentBeforeChange);
+	if (beforeChangeName !is null)
+		inner["fullDocumentBeforeChange"] = Bson(beforeChangeName);
+
 	setIfPresent(inner, "resumeAfter", options.resumeAfter);
 	setIfPresent(inner, "startAfter", options.startAfter);
 
@@ -83,6 +99,22 @@ unittest
 	ChangeStreamOptions options;
 	options.fullDocument = ChangeStreamFullDocument.updateLookup;
 	assert(changeStreamStage(options) == Bson(["$changeStream": Bson(["fullDocument": Bson("updateLookup")])]));
+}
+
+/// changeStreamStage includes fullDocumentBeforeChange when set to whenAvailable
+unittest
+{
+	ChangeStreamOptions options;
+	options.fullDocumentBeforeChange = ChangeStreamFullDocumentBeforeChange.whenAvailable;
+	assert(changeStreamStage(options) == Bson(["$changeStream": Bson(["fullDocumentBeforeChange": Bson("whenAvailable")])]));
+}
+
+/// changeStreamStage includes fullDocumentBeforeChange when set to required
+unittest
+{
+	ChangeStreamOptions options;
+	options.fullDocumentBeforeChange = ChangeStreamFullDocumentBeforeChange.required;
+	assert(changeStreamStage(options) == Bson(["$changeStream": Bson(["fullDocumentBeforeChange": Bson("required")])]));
 }
 
 /// changeStreamStage includes the resumeAfter token when set
@@ -454,6 +486,16 @@ private string mongoName(ChangeStreamFullDocument fullDocument)
 		case ChangeStreamFullDocument.updateLookup: return "updateLookup";
 		case ChangeStreamFullDocument.whenAvailable: return "whenAvailable";
 		case ChangeStreamFullDocument.required: return "required";
+	}
+}
+
+/// The MongoDB wire name for a fullDocumentBeforeChange mode, or null for the server default.
+private string mongoName(ChangeStreamFullDocumentBeforeChange beforeChange)
+{
+	final switch (beforeChange) {
+		case ChangeStreamFullDocumentBeforeChange.off: return null;
+		case ChangeStreamFullDocumentBeforeChange.whenAvailable: return "whenAvailable";
+		case ChangeStreamFullDocumentBeforeChange.required: return "required";
 	}
 }
 
